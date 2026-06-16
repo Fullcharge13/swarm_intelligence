@@ -5,7 +5,7 @@ All LLM calls are mocked — no API key required.
 from __future__ import annotations
 
 import json
-from unittest.mock import MagicMock, AsyncMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
