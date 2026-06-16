@@ -34,6 +34,7 @@ from .task import Task, TaskPriority, TaskStatus
 
 if TYPE_CHECKING:
     from .orchestrator import Orchestrator
+    from .pheromone import PheromoneBoard
 
 # Characters above this threshold trigger Haiku summarisation before the
 # result is injected into a downstream agent's context.
@@ -83,6 +84,24 @@ You are a synthesizer agent in a collaborative AI swarm.
 You receive multiple partial results and combine them into one coherent, well-structured response.
 Eliminate redundancy and resolve any contradictions.
 """,
+    "scout": """\
+You are a scout agent in a collaborative AI swarm.
+Analyse the goal and predict the likely subtasks WITHOUT executing them.
+Output ONLY valid JSON — no markdown fences, no extra text:
+{
+  "hints": [
+    {
+      "title": "<short subtask title>",
+      "complexity": "<simple|medium|complex>"
+    }
+  ]
+}
+
+Complexity guide:
+  simple  — lookup, formatting, short factual answer
+  medium  — analysis, drafting, moderate reasoning
+  complex — deep research, multi-step reasoning
+""",
 }
 
 
@@ -116,6 +135,7 @@ class SwarmAgent:
         bus: MessageBus | None = None,
         orchestrator: "Orchestrator | None" = None,
         llm: LLMClient | None = None,
+        pheromone_board: "PheromoneBoard | None" = None,
     ) -> None:
         self.id = f"{role}-{str(uuid.uuid4())[:6]}"
         self.role = role
@@ -123,6 +143,7 @@ class SwarmAgent:
         self.blackboard = blackboard or Blackboard()
         self.bus = bus or MessageBus()
         self.orchestrator = orchestrator
+        self.pheromone_board = pheromone_board
         self._current_task: Task | None = None
 
         if llm is not None:
@@ -166,6 +187,8 @@ class SwarmAgent:
         """Execute *task* using this agent's role logic."""
         if self.role == "decomposer":
             await self._run_decomposer(task)
+        elif self.role == "scout":
+            await self._run_scout(task)
         else:
             await self._run_generic(task)
 
@@ -196,6 +219,30 @@ class SwarmAgent:
             await self.orchestrator.register_subtasks(task, proposed)
 
         task.mark_done({"subtask_count": len(subtasks_data)})
+
+    async def _run_scout(self, task: Task) -> None:
+        from .pheromone import goal_hash
+        prompt = (
+            f"Goal: {task.title}\n\nDetails: {task.description}\n\n"
+            "Predict the likely subtasks for this goal."
+        )
+        raw = await asyncio.to_thread(self.llm.ask, prompt)
+
+        try:
+            data = json.loads(raw)
+            hints = data.get("hints", [])
+        except json.JSONDecodeError:
+            task.mark_failed(f"Scout returned invalid JSON:\n{raw}")
+            return
+
+        if self.pheromone_board is not None:
+            gh = goal_hash(task.title)
+            for hint in hints:
+                title = hint.get("title", "unknown")
+                key = f"scout/{gh}/{title}"
+                self.pheromone_board.deposit(key, 1.0, data=hint)
+
+        task.mark_done({"hint_count": len(hints)})
 
     # ------------------------------------------------------------------
     # Subtask proposal

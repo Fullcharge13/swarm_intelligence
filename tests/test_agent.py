@@ -257,3 +257,77 @@ class TestMessaging:
 
         keys = agent.blackboard.keys(prefix="message/")
         assert len(keys) == 1
+
+
+class TestScoutRun:
+    @pytest.mark.asyncio
+    async def test_scout_deposits_trails_on_pheromone_board(self):
+        from swarm.pheromone import PheromoneBoard, goal_hash
+        board = PheromoneBoard()
+        hints_json = json.dumps({
+            "hints": [
+                {"title": "Research topic", "complexity": "simple"},
+                {"title": "Write draft", "complexity": "medium"},
+            ]
+        })
+        llm = make_mock_llm(hints_json)
+        agent = SwarmAgent(
+            role="scout",
+            blackboard=Blackboard(),
+            bus=MessageBus(),
+            llm=llm,
+            pheromone_board=board,
+        )
+        task = Task(title="Write a blog post", description="...", required_role="scout")
+        await agent.run(task)
+
+        assert task.status == TaskStatus.DONE
+        gh = goal_hash("Write a blog post")
+        trails = board.strongest(f"scout/{gh}/")
+        assert len(trails) == 2
+        titles = [e["data"]["title"] for _, e in trails]
+        assert "Research topic" in titles
+        assert "Write draft" in titles
+
+    @pytest.mark.asyncio
+    async def test_scout_marks_done_with_hint_count(self):
+        from swarm.pheromone import PheromoneBoard
+        board = PheromoneBoard()
+        hints_json = json.dumps({"hints": [{"title": "T", "complexity": "simple"}]})
+        agent = SwarmAgent(
+            role="scout",
+            blackboard=Blackboard(),
+            bus=MessageBus(),
+            llm=make_mock_llm(hints_json),
+            pheromone_board=board,
+        )
+        task = Task(title="Goal", description="...")
+        await agent.run(task)
+        assert task.status == TaskStatus.DONE
+        assert task.result == {"hint_count": 1}
+
+    @pytest.mark.asyncio
+    async def test_scout_handles_invalid_json(self):
+        agent = SwarmAgent(
+            role="scout",
+            blackboard=Blackboard(),
+            bus=MessageBus(),
+            llm=make_mock_llm("not json"),
+        )
+        task = Task(title="Goal", description="...")
+        await agent.run(task)
+        assert task.status == TaskStatus.FAILED
+
+    @pytest.mark.asyncio
+    async def test_scout_no_pheromone_board_still_runs(self):
+        hints_json = json.dumps({"hints": [{"title": "T", "complexity": "simple"}]})
+        agent = SwarmAgent(
+            role="scout",
+            blackboard=Blackboard(),
+            bus=MessageBus(),
+            llm=make_mock_llm(hints_json),
+            pheromone_board=None,
+        )
+        task = Task(title="Goal", description="...")
+        await agent.run(task)
+        assert task.status == TaskStatus.DONE

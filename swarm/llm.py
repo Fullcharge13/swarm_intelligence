@@ -50,6 +50,7 @@ ROLE_COMPLEXITY: dict[str, str] = {
     "reviewer":    "medium",
     "synthesizer": "complex",  # combining many results needs full context
     "_summarizer": "simple",   # Haiku is sufficient for compaction
+    "scout":       "simple",   # probing only — Haiku is sufficient
 }
 
 # Role → maximum output tokens
@@ -59,6 +60,7 @@ ROLE_MAX_TOKENS: dict[str, int] = {
     "reviewer":    2_048,
     "synthesizer": 6_144,
     "_summarizer":   256,   # tight cap: one short paragraph
+    "scout":         512,   # JSON hints only
 }
 
 
