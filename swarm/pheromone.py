@@ -32,7 +32,8 @@ class PheromoneBoard:
         if key in self._trails:
             self._trails[key]["weight"] += weight
             self._trails[key]["timestamp"] = time.time()
-            self._trails[key]["data"] = data
+            if data is not None:
+                self._trails[key]["data"] = data
         else:
             self._trails[key] = {
                 "weight": weight,
@@ -42,6 +43,8 @@ class PheromoneBoard:
 
     def evaporate(self, decay_rate: float = 0.1) -> None:
         """Multiply all weights by ``(1 - decay_rate)`` and prune those below 0.01."""
+        if not 0.0 < decay_rate < 1.0:
+            raise ValueError(f"decay_rate must be in (0, 1), got {decay_rate}")
         to_delete = [
             key
             for key, entry in self._trails.items()
@@ -68,8 +71,11 @@ class PheromoneBoard:
             return
         try:
             with open(path) as f:
-                self._trails = json.load(f)
-        except (json.JSONDecodeError, OSError) as exc:
+                data = json.load(f)
+            if not isinstance(data, dict):
+                raise ValueError(f"Expected dict, got {type(data).__name__}")
+            self._trails = data
+        except (json.JSONDecodeError, OSError, ValueError) as exc:
             warnings.warn(
                 f"PheromoneBoard: failed to load {path}: {exc}. Starting fresh.",
                 RuntimeWarning,
@@ -81,9 +87,11 @@ class PheromoneBoard:
         """Persist trails to *path* as JSON.  Failure warns but does not raise."""
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            with open(path, "w") as f:
+            tmp = path.with_suffix(".tmp")
+            with open(tmp, "w") as f:
                 json.dump(self._trails, f, indent=2)
-        except OSError as exc:
+            tmp.replace(path)
+        except (OSError, TypeError) as exc:
             warnings.warn(
                 f"PheromoneBoard: failed to save {path}: {exc}.",
                 RuntimeWarning,

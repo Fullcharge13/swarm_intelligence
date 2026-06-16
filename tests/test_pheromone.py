@@ -41,6 +41,12 @@ class TestDeposit:
         board.deposit("key", 0.5, data={"v": 2})
         assert board.get("key")["data"] == {"v": 2}
 
+    def test_deposit_does_not_overwrite_data_with_none(self):
+        board = PheromoneBoard()
+        board.deposit("key", 1.0, data={"v": 1})
+        board.deposit("key", 0.5)
+        assert board.get("key")["data"] == {"v": 1}
+
 
 class TestEvaporate:
     def test_evaporate_reduces_weight(self):
@@ -60,6 +66,16 @@ class TestEvaporate:
         board.deposit("key", 5.0)
         board.evaporate(decay_rate=0.1)
         assert board.get("key") is not None
+
+    def test_evaporate_invalid_decay_rate_raises(self):
+        board = PheromoneBoard()
+        board.deposit("key", 1.0)
+        with pytest.raises(ValueError, match="decay_rate must be in"):
+            board.evaporate(decay_rate=1.0)
+        with pytest.raises(ValueError, match="decay_rate must be in"):
+            board.evaporate(decay_rate=0.0)
+        with pytest.raises(ValueError, match="decay_rate must be in"):
+            board.evaporate(decay_rate=-0.5)
 
 
 class TestStrongest:
@@ -120,6 +136,18 @@ class TestPersistence:
             board.load(path)
         assert len(w) == 1
         assert issubclass(w[0].category, RuntimeWarning)
+        assert board.strongest() == []
+
+    def test_load_non_dict_json_warns_and_resets(self, tmp_path):
+        path = tmp_path / "list.json"
+        path.write_text("[]")
+        board = PheromoneBoard()
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            board.load(path)
+        assert len(w) == 1
+        assert issubclass(w[0].category, RuntimeWarning)
+        assert "Expected dict" in str(w[0].message)
         assert board.strongest() == []
 
     def test_save_creates_parent_dirs(self, tmp_path):

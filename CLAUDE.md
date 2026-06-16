@@ -75,6 +75,7 @@ SwarmAgent.assign(task)                                   │
 | `swarm/environment.py` | `Blackboard` — thread-safe key/value store; keys are namespaced strings like `"task/<id>/result"`. Acts as stigmergic memory between agents. |
 | `swarm/messaging.py` | `MessageBus` — async pub/sub for direct agent↔agent messages. Topics follow `"agent/<id>"`. |
 | `swarm/llm.py` | `LLMClient` — Anthropic SDK wrapper that applies prompt caching to all system prompts and tracks token usage. `make_client(role)` selects the right model. |
+| `swarm/pheromone.py` | `PheromoneBoard` — weighted, time-decaying pheromone trail store; `goal_hash()` for stable key namespacing. |
 | `swarm/agent.py` | `SwarmAgent` — base agent class with role-specific `run()` logic. Roles: `decomposer`, `executor`, `reviewer`, `synthesizer`. Custom roles can be added via `ROLE_PROMPTS` dict or subclassing. |
 | `swarm/orchestrator.py` | `Orchestrator` — async dispatch loop, agent pool management, token-usage reporting. |
 
