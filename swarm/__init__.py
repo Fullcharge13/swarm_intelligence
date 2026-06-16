@@ -4,6 +4,7 @@ from .agent import SwarmAgent
 from .environment import Blackboard
 from .messaging import MessageBus
 from .orchestrator import Orchestrator
+from .pheromone import PheromoneBoard
 from .task import Task, TaskGraph, TaskPriority, TaskStatus
 
 __all__ = [
@@ -11,6 +12,7 @@ __all__ = [
     "Blackboard",
     "MessageBus",
     "Orchestrator",
+    "PheromoneBoard",
     "Task",
     "TaskGraph",
     "TaskPriority",
