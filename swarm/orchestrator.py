@@ -33,6 +33,7 @@ from .agent import SwarmAgent, ROLE_PROMPTS
 from .environment import Blackboard
 from .llm import LLMClient, COMPLEXITY_MODELS, ROLE_MAX_TOKENS, make_client
 from .messaging import MessageBus
+from .pheromone import PheromoneBoard, goal_hash
 from .task import Task, TaskGraph, TaskStatus
 
 _MAX_AGENTS    = int(os.getenv("SWARM_MAX_AGENTS",   "8"))
@@ -61,13 +62,15 @@ class Orchestrator:
 
     def __init__(
         self,
-        max_agents:   int  = _MAX_AGENTS,
-        max_depth:    int  = _MAX_DEPTH,
-        use_batching: bool = _USE_BATCHING,
+        max_agents:      int  = _MAX_AGENTS,
+        max_depth:       int  = _MAX_DEPTH,
+        use_batching:    bool = _USE_BATCHING,
+        pheromone_board: PheromoneBoard | None = None,
     ) -> None:
-        self.max_agents   = max_agents
-        self.max_depth    = max_depth
-        self.use_batching = use_batching
+        self.max_agents      = max_agents
+        self.max_depth       = max_depth
+        self.use_batching    = use_batching
+        self.pheromone_board = pheromone_board
 
         self.blackboard = Blackboard()
         self.bus        = MessageBus()
@@ -151,6 +154,8 @@ class Orchestrator:
     def _launch_agent_task(self, task: Task) -> None:
         """Assign *task* to an agent and schedule the asyncio task."""
         task.status = TaskStatus.ASSIGNED
+        if task.required_role == "decomposer":
+            self._inject_trail_hints(task)
         agent = self._get_or_create_agent(task.required_role or "executor", task.complexity)
         at = asyncio.create_task(self._run_agent(agent, task))
         self._running_tasks.add(at)
@@ -159,6 +164,29 @@ class Orchestrator:
             f"[green]▶[/] {agent.id} → task [bold]{task.id}[/] "
             f"({task.title[:55]}) [{agent.llm.model.split('-')[1]}]"
         )
+
+    def _inject_trail_hints(self, task: Task) -> None:
+        """Write strongest pheromone trails as a blackboard note for the decomposer.
+
+        The decomposer's ``_build_context`` already reads ``note/<task_id>/*``
+        keys, so this requires no changes to agent logic.
+        """
+        if self.pheromone_board is None:
+            return
+        gh = goal_hash(task.title)
+        trails = self.pheromone_board.strongest(f"scout/{gh}/", n=5)
+        if not trails:
+            return
+        lines = []
+        for _, entry in trails:
+            data = entry.get("data")
+            if isinstance(data, dict):
+                title = data.get("title", "unknown")
+                complexity = data.get("complexity", "?")
+                lines.append(f"- {title} [{complexity}]")
+        if lines:
+            hint_text = "Scout trail hints (consider these as likely subtasks):\n" + "\n".join(lines)
+            self.blackboard.write_note(task.id, hint_text, author="pheromone_board")
 
     # ------------------------------------------------------------------
     # Opt. 3 — Batch dispatch path
@@ -243,6 +271,16 @@ class Orchestrator:
             console.log(f"[{color}]{icon}[/] {agent.id} finished task [bold]{task.id}[/]")
             if task.parent_id:
                 await self._maybe_complete_parent(task.parent_id)
+            # Reinforce or suppress pheromone trail based on outcome
+            if self.pheromone_board is not None and task.required_role != "scout":
+                gh = goal_hash(task.title)
+                key = f"scout/{gh}/{task.title}"
+                if task.status == TaskStatus.DONE:
+                    self.pheromone_board.deposit(key, 0.5)
+                elif task.status == TaskStatus.FAILED:
+                    entry = self.pheromone_board.get(key)
+                    if entry is not None:
+                        entry["weight"] = entry["weight"] * 0.2
         finally:
             self._return_agent(agent)
 
@@ -307,6 +345,7 @@ class Orchestrator:
             bus=self.bus,
             orchestrator=self,
             llm=shared_llm,
+            pheromone_board=self.pheromone_board,
         )
 
     def _return_agent(self, agent: SwarmAgent) -> None:
