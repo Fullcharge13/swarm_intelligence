@@ -154,13 +154,24 @@ class LLMClient:
         """
         batch = self._client.messages.batches.create(requests=requests)
         elapsed = 0.0
+        timed_out = True
 
         while elapsed < max_wait:
             await asyncio.sleep(poll_interval)
             elapsed += poll_interval
             status = self._client.messages.batches.retrieve(batch.id)
             if status.processing_status == "ended":
+                timed_out = False
                 break
+
+        if timed_out:
+            import warnings
+            warnings.warn(
+                f"batch_ask timed out after {max_wait}s for batch {batch.id}; "
+                "returning partial results",
+                RuntimeWarning,
+                stacklevel=2,
+            )
 
         results: dict[str, str] = {}
         for item in self._client.messages.batches.results(batch.id):  # type: ignore[attr-defined]

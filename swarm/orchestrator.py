@@ -254,7 +254,7 @@ class Orchestrator:
         all_task_ids = {t.id for t in self.graph.values()}
         children = [self.graph.get(cid) for cid in parent.child_ids if cid in all_task_ids]
         if all(c.is_terminal() for c in children):
-            if parent.required_role == "decomposer" and parent.status != TaskStatus.DONE:
+            if parent.status != TaskStatus.DONE:
                 results = {c.title: c.result for c in children if c.status == TaskStatus.DONE}
                 parent.mark_done(results)
                 self.graph.update(parent)

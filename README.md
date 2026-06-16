@@ -135,7 +135,7 @@ asyncio.run(main())
 
 ## 🐛 Bug Fixes Applied
 
-Six confirmed bugs were identified and fixed before the initial release:
+Nine confirmed bugs were identified and fixed:
 
 | # | Location | Issue | Fix |
 |---|----------|-------|-----|
@@ -145,6 +145,9 @@ Six confirmed bugs were identified and fixed before the initial release:
 | 4 | `task.py` | Dropped deps silently treated as satisfied | Missing deps now fail the task immediately |
 | 5 | `orchestrator.py` | Agents returned to wrong model pool | `SwarmAgent` stores `complexity`; pool key corrected |
 | 6 | `orchestrator.py` | Second Orchestrator got stale system prompt | System prompt always overwritten on first use |
+| 7 | `llm.py` | `batch_ask()` timed out silently with partial results | Added timeout flag + `warnings.warn` after poll loop |
+| 8 | `orchestrator.py` | `_maybe_complete_parent` only worked for decomposer role | Removed role guard — any role's parent now auto-completes |
+| 9 | `agent.py` | Falsy dependency results (`""`, `0`, `False`) were silently dropped | Changed `if not result` to `if result is None` |
 
 ---
 
@@ -306,7 +309,7 @@ asyncio.run(main())
 
 ## 🐛 수정된 버그 목록
 
-최초 릴리스 전 6개의 확정 버그를 발견하고 수정했습니다:
+총 9개의 확정 버그를 발견하고 수정했습니다:
 
 | # | 위치 | 문제 | 수정 |
 |---|------|------|------|
@@ -316,6 +319,9 @@ asyncio.run(main())
 | 4 | `task.py` | max_depth로 드롭된 의존성을 충족된 것으로 오인 | 누락된 의존성이 있으면 즉시 FAILED 처리 |
 | 5 | `orchestrator.py` | 에이전트가 잘못된 모델 풀로 귀환 | `SwarmAgent`에 `complexity` 저장, 풀 키 수정 |
 | 6 | `orchestrator.py` | 두 번째 Orchestrator 생성 시 시스템 프롬프트 오염 | 시스템 프롬프트 항상 덮어쓰도록 수정 |
+| 7 | `llm.py` | `batch_ask()` 타임아웃 시 부분 결과를 무음으로 반환 | 타임아웃 플래그 추가 및 `warnings.warn`으로 경고 출력 |
+| 8 | `orchestrator.py` | `_maybe_complete_parent`가 decomposer 역할에만 동작 | 역할 조건 제거 — 모든 역할의 부모 태스크 자동 완료 처리 |
+| 9 | `agent.py` | 빈 문자열/0/False 등 falsy 의존성 결과가 무음으로 스킵 | `if not result` → `if result is None`으로 변경 |
 
 ---
 

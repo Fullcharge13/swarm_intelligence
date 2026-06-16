@@ -247,7 +247,7 @@ class SwarmAgent:
 
         for dep_id in task.depends_on:
             result = self.blackboard.task_result(dep_id)
-            if not result:
+            if result is None:
                 continue
 
             result_str = str(result)
