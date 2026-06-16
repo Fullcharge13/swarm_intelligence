@@ -22,6 +22,10 @@ A swarm of specialized agents collaboratively **decomposes**, **executes**, **re
 | 📦 **Batch API support** | Independent leaf tasks submitted in one Batch API call (50% cheaper) |
 | 🔁 **Agent pool reuse** | Idle agents are returned to a typed pool and reused across tasks |
 | 📊 **Token usage report** | End-of-run table shows input/output/cache tokens per role tier |
+| 🐜 **Pheromone trails** | Scout agents deposit weighted, time-decaying hints that guide decomposers |
+| 🔍 **Scout role** | Lightweight Haiku-powered probe that predicts subtasks before execution |
+| 🪝 **PostToolUse hook** | Auto-scouts on every Bash call when `SWARM_SESSION_GOAL` is set |
+| ⚗️ **`/swarm` skill** | On-demand Claude Code skill: scout → orchestrate → show trail summary |
 
 ---
 
@@ -31,16 +35,23 @@ A swarm of specialized agents collaboratively **decomposes**, **executes**, **re
 User goal
     │
     ▼
+[Optional] Scout pass
+    │  SwarmAgent(role="scout") predicts likely subtasks
+    │  deposits trails → PheromoneBoard (.swarm/pheromones.json)
+    ▼
 Orchestrator.run()
     │  seeds TaskGraph with root Task(role="decomposer")
+    │  injects strongest pheromone trails as Blackboard notes
     ▼
 ⟳ Dispatch loop
     │  picks ready tasks → assigns idle SwarmAgent
     ▼
 SwarmAgent.assign(task)
     │
-    ├─ 🔍 decomposer  →  Claude returns JSON subtask list
+    ├─ 🐜 scout       →  Claude predicts subtasks (JSON) → deposits to PheromoneBoard
+    ├─ 🔍 decomposer  →  Claude returns JSON subtask list (reads trail hints)
     │                     → register_subtasks() → back to loop
+    │                     → reinforces/suppresses pheromone trails on DONE/FAILED
     │
     ├─ ⚙️  executor    →  Claude executes the task
     ├─ 🔎 reviewer    →  Claude reviews & annotates a result
@@ -55,12 +66,19 @@ SwarmAgent.assign(task)
 swarm_intelligence/
 ├── swarm/
 │   ├── task.py          # Task model + TaskGraph DAG scheduler
-│   ├── agent.py         # SwarmAgent — role-based execution logic
-│   ├── orchestrator.py  # Async dispatch loop + agent pool
+│   ├── agent.py         # SwarmAgent — role-based execution logic (incl. scout)
+│   ├── orchestrator.py  # Async dispatch loop + agent pool + trail injection
 │   ├── llm.py           # Anthropic SDK wrapper (caching, batching, tiers)
 │   ├── environment.py   # Blackboard — shared in-process key/value store
-│   └── messaging.py     # MessageBus — async pub/sub between agents
-├── tests/               # pytest test suite (35 tests, no API calls needed)
+│   ├── messaging.py     # MessageBus — async pub/sub between agents
+│   ├── pheromone.py     # PheromoneBoard — weighted, time-decaying trail store
+│   └── hooks/
+│       └── scout_hook.py  # PostToolUse hook: auto-scout on Bash calls
+├── .claude/
+│   ├── settings.json    # PostToolUse hook registration
+│   └── skills/
+│       └── swarm.md     # /swarm Claude Code skill
+├── tests/               # pytest test suite (71 tests, no API calls needed)
 ├── examples/
 │   └── decompose_and_run.py
 ├── pyproject.toml
@@ -102,6 +120,8 @@ pytest
 
 ## 🛠️ Usage
 
+### Basic usage
+
 ```python
 import asyncio
 from swarm import Orchestrator
@@ -117,6 +137,49 @@ async def main():
 asyncio.run(main())
 ```
 
+### With pheromone trails (ant colony mode)
+
+```python
+import asyncio
+from swarm import Orchestrator, PheromoneBoard
+
+async def main():
+    board = PheromoneBoard()
+    board.load()          # load trails from .swarm/pheromones.json (if any)
+    board.evaporate()     # decay stale trails before the run
+
+    orchestrator = Orchestrator(max_agents=4, max_depth=2, pheromone_board=board)
+    result = await orchestrator.run(
+        goal="Write a technical blog post about swarm intelligence",
+        description="Target: software engineers. Length: ~600 words.",
+    )
+    board.save()          # persist updated trails for the next run
+    print(result)
+
+asyncio.run(main())
+```
+
+### `/swarm` Claude Code skill
+
+If you're using [Claude Code](https://claude.ai/code), install the `/swarm` skill and run:
+
+```
+/swarm Write a technical blog post about swarm intelligence
+```
+
+This runs a full scout → orchestrate → trail summary pipeline entirely within your Claude Code session.
+
+### Auto-scouting via PostToolUse hook
+
+Set `SWARM_SESSION_GOAL` in your environment and Claude Code will automatically probe your goal after every Bash tool call:
+
+```bash
+export SWARM_SESSION_GOAL="Refactor the authentication module"
+# Now every Bash command triggers a background scout pass
+```
+
+Trails accumulate in `.swarm/pheromones.json` and strengthen suggestions for future runs.
+
 ---
 
 ## ⚙️ Environment Variables
@@ -130,6 +193,7 @@ asyncio.run(main())
 | `SWARM_MAX_AGENTS` | `8` | Max concurrent agents |
 | `SWARM_MAX_DEPTH` | `4` | Max decomposition depth |
 | `SWARM_USE_BATCHING` | `false` | Enable Batch API path |
+| `SWARM_SESSION_GOAL` | — | Goal for the PostToolUse scout hook (enables auto-scouting) |
 
 ---
 
@@ -154,10 +218,12 @@ Nine confirmed bugs were identified and fixed:
 ## 🧪 Running Tests
 
 ```bash
-pytest                          # all 35 tests
-pytest tests/test_task.py       # task graph only
-pytest tests/test_agent.py      # agent logic only
-pytest -v                       # verbose output
+pytest                              # all 71 tests
+pytest tests/test_task.py           # task graph only
+pytest tests/test_agent.py          # agent logic only
+pytest tests/test_pheromone.py      # pheromone board only
+pytest tests/test_integration.py    # end-to-end scout → trail → decomposer
+pytest -v                           # verbose output
 ```
 
 ---
@@ -196,6 +262,10 @@ pytest -v                       # verbose output
 | 📦 **배치 API 지원** | 독립 리프 태스크를 하나의 Batch API 요청으로 처리 (50% 비용 절감) |
 | 🔁 **에이전트 풀 재사용** | 유휴 에이전트를 풀에 반환하여 태스크 간 재사용 |
 | 📊 **토큰 사용량 리포트** | 실행 종료 시 역할 티어별 입력/출력/캐시 토큰 현황 출력 |
+| 🐜 **페로몬 트레일** | 스카우트 에이전트가 가중치·시간 감쇠 힌트를 적층해 분해기를 안내 |
+| 🔍 **스카우트 역할** | 실행 전 하위 태스크를 예측하는 경량 Haiku 기반 탐색 에이전트 |
+| 🪝 **PostToolUse 훅** | `SWARM_SESSION_GOAL` 설정 시 Bash 호출마다 자동 스카우팅 |
+| ⚗️ **`/swarm` 스킬** | 온디맨드 Claude Code 스킬: 스카우트 → 실행 → 트레일 요약 |
 
 ---
 
@@ -205,16 +275,23 @@ pytest -v                       # verbose output
 사용자 목표
     │
     ▼
+[선택] 스카우트 패스
+    │  SwarmAgent(role="scout")가 예상 하위 태스크 예측
+    │  트레일 적층 → PheromoneBoard (.swarm/pheromones.json)
+    ▼
 Orchestrator.run()
     │  TaskGraph에 root Task(role="decomposer") 추가
+    │  페로몬 트레일 상위 N개를 Blackboard 노트로 주입
     ▼
 ⟳ 디스패치 루프
     │  준비된 태스크 선택 → 유휴 SwarmAgent에 할당
     ▼
 SwarmAgent.assign(task)
     │
-    ├─ 🔍 decomposer  →  Claude가 JSON 하위 태스크 목록 반환
+    ├─ 🐜 scout       →  Claude가 JSON 힌트 예측 → PheromoneBoard에 적층
+    ├─ 🔍 decomposer  →  Claude가 JSON 하위 태스크 목록 반환 (트레일 힌트 참조)
     │                     → register_subtasks() → 루프로 복귀
+    │                     → 완료/실패 시 페로몬 트레일 강화/억제
     │
     ├─ ⚙️  executor    →  Claude가 태스크 실행
     ├─ 🔎 reviewer    →  Claude가 결과 검토 및 주석 추가
@@ -229,12 +306,19 @@ SwarmAgent.assign(task)
 swarm_intelligence/
 ├── swarm/
 │   ├── task.py          # Task 모델 + TaskGraph DAG 스케줄러
-│   ├── agent.py         # SwarmAgent — 역할 기반 실행 로직
-│   ├── orchestrator.py  # 비동기 디스패치 루프 + 에이전트 풀
+│   ├── agent.py         # SwarmAgent — 역할 기반 실행 로직 (스카우트 포함)
+│   ├── orchestrator.py  # 비동기 디스패치 루프 + 에이전트 풀 + 트레일 주입
 │   ├── llm.py           # Anthropic SDK 래퍼 (캐싱, 배치, 티어)
 │   ├── environment.py   # Blackboard — 프로세스 내 공유 저장소
-│   └── messaging.py     # MessageBus — 에이전트 간 비동기 pub/sub
-├── tests/               # pytest 테스트 (35개, API 키 불필요)
+│   ├── messaging.py     # MessageBus — 에이전트 간 비동기 pub/sub
+│   ├── pheromone.py     # PheromoneBoard — 가중치·시간 감쇠 트레일 저장소
+│   └── hooks/
+│       └── scout_hook.py  # PostToolUse 훅: Bash 호출 시 자동 스카우팅
+├── .claude/
+│   ├── settings.json    # PostToolUse 훅 등록
+│   └── skills/
+│       └── swarm.md     # /swarm Claude Code 스킬
+├── tests/               # pytest 테스트 (71개, API 키 불필요)
 ├── examples/
 │   └── decompose_and_run.py
 ├── pyproject.toml
@@ -276,6 +360,8 @@ pytest
 
 ## 🛠️ 사용 예시
 
+### 기본 사용
+
 ```python
 import asyncio
 from swarm import Orchestrator
@@ -291,6 +377,49 @@ async def main():
 asyncio.run(main())
 ```
 
+### 페로몬 트레일 활성화 (개미 군집 모드)
+
+```python
+import asyncio
+from swarm import Orchestrator, PheromoneBoard
+
+async def main():
+    board = PheromoneBoard()
+    board.load()          # .swarm/pheromones.json에서 트레일 로드 (있으면)
+    board.evaporate()     # 실행 전 오래된 트레일 감쇠
+
+    orchestrator = Orchestrator(max_agents=4, max_depth=2, pheromone_board=board)
+    result = await orchestrator.run(
+        goal="스웜 인텔리전스에 관한 기술 블로그 포스트 작성",
+        description="대상: 소프트웨어 엔지니어. 분량: 약 600단어.",
+    )
+    board.save()          # 다음 실행을 위해 업데이트된 트레일 저장
+    print(result)
+
+asyncio.run(main())
+```
+
+### `/swarm` Claude Code 스킬
+
+[Claude Code](https://claude.ai/code)를 사용 중이라면 `/swarm` 스킬을 설치한 뒤:
+
+```
+/swarm 스웜 인텔리전스에 관한 기술 블로그 포스트 작성
+```
+
+스카우트 → 실행 → 트레일 요약 파이프라인이 Claude Code 세션 내에서 자동 실행됩니다.
+
+### PostToolUse 훅으로 자동 스카우팅
+
+환경 변수에 `SWARM_SESSION_GOAL`을 설정하면 Claude Code가 모든 Bash 도구 호출 후 자동으로 스카우팅합니다:
+
+```bash
+export SWARM_SESSION_GOAL="인증 모듈 리팩터링"
+# 이제 모든 Bash 명령이 백그라운드 스카우트 패스를 트리거합니다
+```
+
+트레일은 `.swarm/pheromones.json`에 누적되며 이후 실행의 제안을 강화합니다.
+
 ---
 
 ## ⚙️ 환경 변수
@@ -304,6 +433,7 @@ asyncio.run(main())
 | `SWARM_MAX_AGENTS` | `8` | 최대 동시 에이전트 수 |
 | `SWARM_MAX_DEPTH` | `4` | 최대 분해 깊이 |
 | `SWARM_USE_BATCHING` | `false` | Batch API 경로 활성화 |
+| `SWARM_SESSION_GOAL` | — | PostToolUse 스카우트 훅용 목표 (자동 스카우팅 활성화) |
 
 ---
 
@@ -328,10 +458,12 @@ asyncio.run(main())
 ## 🧪 테스트 실행
 
 ```bash
-pytest                          # 전체 35개 테스트
-pytest tests/test_task.py       # 태스크 그래프만
-pytest tests/test_agent.py      # 에이전트 로직만
-pytest -v                       # 상세 출력
+pytest                              # 전체 71개 테스트
+pytest tests/test_task.py           # 태스크 그래프만
+pytest tests/test_agent.py          # 에이전트 로직만
+pytest tests/test_pheromone.py      # 페로몬 보드만
+pytest tests/test_integration.py    # 스카우트 → 트레일 → 분해기 E2E
+pytest -v                           # 상세 출력
 ```
 
 ---
