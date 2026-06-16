@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 import warnings
 from pathlib import Path
@@ -12,7 +13,7 @@ from typing import Any
 
 def goal_hash(goal: str) -> str:
     """Return a stable 8-char hex prefix for trail key namespacing."""
-    return hashlib.md5(goal.encode()).hexdigest()[:8]
+    return hashlib.md5(goal.encode(), usedforsecurity=False).hexdigest()[:8]
 
 
 class PheromoneBoard:
@@ -87,7 +88,7 @@ class PheromoneBoard:
         """Persist trails to *path* as JSON.  Failure warns but does not raise."""
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = path.with_suffix(".tmp")
+            tmp = path.with_name(f"{path.stem}.{os.getpid()}.tmp")
             with open(tmp, "w") as f:
                 json.dump(self._trails, f, indent=2)
             tmp.replace(path)

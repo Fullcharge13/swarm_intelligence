@@ -256,6 +256,21 @@ class Orchestrator:
             self.graph.update(task)
             if task.parent_id:
                 await self._maybe_complete_parent(task.parent_id)
+            if self.pheromone_board is not None and task.required_role != "scout":
+                current = task
+                while current.parent_id:
+                    try:
+                        current = self.graph.get(current.parent_id)
+                    except KeyError:
+                        break
+                gh = goal_hash(current.title)
+                key = f"scout/{gh}/{task.title}"
+                if task.status == TaskStatus.DONE:
+                    self.pheromone_board.deposit(key, 0.5)
+                elif task.status == TaskStatus.FAILED:
+                    entry = self.pheromone_board.get(key)
+                    if entry is not None:
+                        entry["weight"] = entry["weight"] * 0.2
             self._return_agent(agent)
 
     # ------------------------------------------------------------------
@@ -273,7 +288,14 @@ class Orchestrator:
                 await self._maybe_complete_parent(task.parent_id)
             # Reinforce or suppress pheromone trail based on outcome
             if self.pheromone_board is not None and task.required_role != "scout":
-                gh = goal_hash(task.title)
+                # Traverse to root task to get the session goal for the trail key
+                current = task
+                while current.parent_id:
+                    try:
+                        current = self.graph.get(current.parent_id)
+                    except KeyError:
+                        break
+                gh = goal_hash(current.title)
                 key = f"scout/{gh}/{task.title}"
                 if task.status == TaskStatus.DONE:
                     self.pheromone_board.deposit(key, 0.5)

@@ -230,8 +230,10 @@ class SwarmAgent:
 
         try:
             data = json.loads(raw)
+            if not isinstance(data, dict):
+                raise ValueError(f"expected JSON object, got {type(data).__name__}")
             hints = data.get("hints", [])
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, ValueError):
             task.mark_failed(f"Scout returned invalid JSON:\n{raw}")
             return
 
